@@ -20,8 +20,6 @@ head(legal)
 
 # remove (CARD #16A-1)  --------------------------------------------------- 
 
-
-
 pspace1 <- pspace0 %>% 
   mutate(legal = gsub("\\([^()]*\\)", "", pspace$legal))
 
