@@ -231,7 +231,7 @@ xtrs %>%
 
 :::{.callout-tip}
 
-Usingl *capture groups*  
+Using *capture groups*  
 
 `myvar <- c("2-15-30", "20-15-30", "34-17-35", "7-12-22")`
 `str_replace(myvar, "(^[0-9]{1,2})-(.*)", paste0('\\2', "-", "\\1"))`
