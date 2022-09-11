@@ -1,0 +1,307 @@
+---
+author: Robert
+date: '`r format(Sys.Date())`'
+title: Cheyenne County Parcels
+output:
+  html_document:
+    toc_float: false
+    number_sections: true
+    toc: true
+---
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE) 
+
+```
+
+
+
+```{r}
+library(data.table) # Use fread to import
+library(tidyverse)
+library(janitor)
+library(tictoc)
+library(stringr)
+library(lubridate)
+library(arrow)
+library(here)
+``` 
+
+
+### Before you deply your regex expressions in your code, test them out with *regex testers*    
+* [To install regexplain package by Garrick Aden-Buie](https://www.garrickadenbuie.com/project/regexplain/)  
+* [rubular by Michael Lovitt](https://rubular.com)  
+* [regex101 by Firas Dib](https://regex101.com/)    
+* [regexr by Grant Skinner](https://blog.gskinner.com/archives/2008/03/regexr_free_onl.html)    
+* [regexr - regexr.com](https://regexr.com/)   
+* [regexpal - part of "Dan's Developer Tools]  
+
+
+
+
+
+
+### Import Cheyenne County Parcel data (Ownership)  
+* Sales_Date as date does not import
+* Sales_Date as character *does* import but not all of the date obs convert to date type.  
+* For consistent date conversion, convert the excel file to csv before import.  
+* load with readlx = 0.45 seconds
+* load with arrow = 0.01 seconds  
+
+**Import parquet data with arrow** 
+```{r}
+
+tic()
+parcels <- read_parquet(here("data/cheyenne_parcels.parquet"))
+toc()
+```
+
+
+```{r eval=FALSE}  
+
+tic()
+# library(readxl)
+
+# parcelpath <- "F:/D_Documents/GitHub-DasRotRad/regex_rfortherest/data/Cheyenne_Parcels.xlsx"
+# 
+# Cheyenne_Parcels <- read_excel(parcelpath, 
+# # Cheyenne_Parcels <- read_excel("data/Cheyenne_Parcels.xlsx", 
+#     col_types = c("text", "text", "text", 
+#         "text", "text", "text", "numeric", 
+#         "numeric", "numeric", "numeric", 
+#         "numeric", "numeric", "text", "date", 
+#         "numeric", "text", "text", "numeric", 
+#         "numeric", "text", "numeric", "numeric", 
+#         "numeric"))
+# 
+# 
+# toc()
+# View(Cheyenne_Parcels)
+# 
+
+
+# write_parquet(Cheyenne_Parcels, here("data/cheyenne_parcels.parquet"))
+
+# write_csv_arrow(cars, "cars.csv")
+
+# write.csv(Cheyenne_Parcels, "./data/Cheyenne_Parcels.csv")
+```  
+
+
+### Import Parcel data, Sales Date as Character 
+* Chunk not evaluated  
+* import takes 0.27 seconds  
+* has sales_date  
+* fast but I find problems coverting number to as.Date()   
+
+```{r eval=FALSE}
+library(readxl)
+tic()
+Cheyenne_Parcels_c <- read_excel("data/Cheyenne_Parcels.xlsx") 
+toc()
+View(Cheyenne_Parcels)
+```
+
+
+```{r eval=FALSE}
+# library(xlsx)
+library(writexl)
+
+write_xlsx(Cheyenne_Parcels,path=here("data/cheyenne_owners.xlsx"))
+
+```
+
+
+### Import Parcels from csv with *fread()*  from data.table package 
+
+
+* import takes 0.04 seconds  
+* class(parcels0$SALES_DATE) SALES_DATE was imported as a character with fread.
+* convert character string to date object.
+* increases import from 0.04 to 0.06 seconds. 
+* clean_names from Janitor package  
+
+
+### Importing with fread does not read dates.   
+
+* Chunk not evaluated  
+
+```{r eval=FALSE}
+tic()
+parcels0 <- fread("./data/Cheyenne_Parcels.csv") %>% 
+  mutate(SALES_DATE = as_date(SALES_DATE)) %>% 
+  clean_names()
+toc()
+```
+* class(parcels0$SALES_DATE) 
+
+### problems 
+* When using *fread* to import from xlsx files, dates were corrupted.
+* could not convert all to date type
+```{r eval=FALSE}
+parcels <- Cheyenne_Parcels %>%  
+  clean_names() %>% 
+  select(parcel_id, current_ow, street_add, legal_desc, total_asse, sales_date, property_t)  
+  # as.POSIXct(sales_date, "ymd")
+ #  as.Date(sales_date, format = "%Y.%B.%d")
+
+  
+parcels
+```
+
+## Import from CSV using library(readr)  
+* Chunk not evaluated  
+```{r eval=FALSE}
+library(readr)
+
+
+tic()
+Cheyenne_Parcels <- read_csv("data/Cheyenne_Parcels.csv", 
+    col_types = cols(SALES_DATE = col_date(format = "%m/%d/%Y")))
+toc()
+View(Cheyenne_Parcels)
+```
+
+### Clean Names  *trim_ws = TRUE*  
+* trim white space.  Print in console.  If any white spaces there will be quotes. 
+
+```{r}
+
+parcels <- parcels %>% 
+  clean_names() %>% 
+  select(parcel_id, current_ow, street_add, street_add, legal_desc, total_asse, sales_date, shape_area)
+  trim_ws = TRUE  
+  
+```  
+
+
+### Look for White space
+```{r}
+parcels %>% 
+  mutate(leadingst = str_detect(current_ow, "^ "),
+         trailingws = str_detect(current_ow, " $")) %>% 
+  select(leadingst, trailingws)  
+#  filter(leadingst=="TRUE")
+#  filter(trailingws=="TRUE")
+
+# remove whitespaces
+# parcels %>% 
+  # mutate(current_ow = str_squish(current_ow)) %>% 
+  # select(current_ow)
+
+```
+
+```{r}
+parcels  %>% 
+  select(street_add) %>% 
+  head(15)
+# tidyr::separate(current_ow, "owner2", "address", ",")
+
+``` 
+
+
+### Splitting Columns with tidyr::separate()  
+* [Joachim Schork's Statics Globe](https://www.youtube.com/watch?v=xrrWLKRfZWY)  
+
+```{r}
+str_split(parcels$street_add, pattern = "\\s[A-Z]{2}$", 2) %>% 
+  head(15)
+```
+
+
+```{r} 
+
+parcels0 <- parcels  %>% 
+  clean_names() %>% 
+  select(street_add) %>%
+  separate(street_add, c("col1", "address", "city_state", "zipcode"), ",") %>% 
+  mutate(across(where(is.character), str_trim))
+  view()
+  
+``` 
+
+### compare dfs
+```{r}
+
+all_equal(parcels, parcels0)
+compare_df_cols(parcels, parcels0)
+
+
+```
+
+
+### Splitting Column by number of characters  
+```{r}
+parcels0 %>% 
+ # data.frame() %>% 
+  str_split(string = parcels0$city_state, pattern = "\\s..$") %>% 
+  sample_n(6)
+```
+
+
+```{r}
+separate(parcels0, city_state, into=c("city", "state"), sep = regex("\\s[A-Z]{2}$"))
+
+
+  separate(parcels0$city_state, into = c("city", "state"), sep = " ")
+  
+x1 <- str_split(parcels0$city_state, pattern = ("\\s[A-Z]{2}$"), n=2, simplify = TRUE)
+x1 <- str_split(parcels0$city_state, pattern = " ", simplify = TRUE)
+
+```
+
+```{r}
+parcels %>% 
+  sample_n(20) %>% 
+  select(city_state) %>% 
+separate(parcels, city_state, into=c("city", "state"), sep = "\\w")
+
+library(treemapify)
+ggplot(df_roy, aes(area = TotalRoyAc,
+        fill = initials,
+        label = TotalRoyAc,
+        subgroup = initials)) +
+  geom_treemap() +
+  geom_treemap_subgroup_border() +
+  geom_treemap_subgroup_text(place = "centre",
+              grow = F,
+              alpha = 0.5,
+              colour = "black",
+              fontface = "italic",
+              min.size = 0) +
+  geom_treemap_text(colour = "white", place = "topleft", reflow = T) +
+      labs(y = " ",
+      x = NULL,
+      title = "Who is Contributing the Greatest Number of Royalty Acres?",
+      subtitle = "Royalty Acres = Sum of Roy Acres * NRI")
+```
+
+
+```{r}
+x <- parcels %>% 
+  sample_n(10) %>% 
+  mutate(city_state = str_squish(city_state)) %>% 
+  trimws(city_state)
+# x<-  trimws(x$city_state) 
+  
+#  x  <- pillar::trim_ws(x$city_state,which="both")
+
+strsplit(x, split= " ")
+tibble(x)
+```
+
+### Create a dataframe for dput examples  
+
+```{r}
+library(splitstackshape)
+
+class(city_state) 
+
+
+
+
+cSplit("cityDT", sep = " ", drop = FALSE) # separate animals_name column, but keep it
+
+```
+

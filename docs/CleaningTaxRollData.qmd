@@ -1,0 +1,452 @@
+---
+title: "Cleaning Datasets"
+author: "Robert C Cline Sr."
+format: 
+  html:
+   # code-fold: true
+    code-copy: true
+  
+toc: true
+number-sections: false
+editor: visual
+execute: 
+  echo: false
+  warning: false
+  message: false
+ 
+# https://quarto.org/docs/projects/quarto-projects.html
+---
+
+### Cleaning datasets using Cheyenne County NE tax roll as an example
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(tictoc)
+library(stringr)
+library(lubridate)
+library(arrow)
+library(here)
+library(tidyr)
+library(gt)
+library(kableExtra)
+#library(radiant)
+#library(timetk)
+
+```
+
+```{r}
+# import data -------------------------------------------------------------
+
+
+
+parcels0 <- read_parquet(here("data/cheyenne_parcels.parquet")) %>% 
+  clean_names()
+
+
+
+parcels1 <- parcels0 %>% 
+  rename(pid = parcel_id) %>% 
+  mutate(acres = shape_area/43560) %>% 
+  select(pid, current_ow, street_add, legal_desc, acres, sales_date) 
+
+
+```
+
+<br> 
+
+### Import and glimpse at data 
+```{r}
+#| label: glimpse1
+#| tbl-cap: "Glimpse at raw data set"
+
+
+parcels1 %>% 
+  glimpse()  
+
+
+```
+
+* Select pertinent variables from the data set.  
+* A *glimpse* at the data reveals `r parcels1 %>% nrow()` rows of data.   
+* We can spot some if not most of the variables within the data set are missing data.  
+
+### Identify missing values.  
+
+*Table 1* Missing data count
+```{r}
+
+#| tbl-cap:  "This is my cap"
+miss_data <- parcels1 |> 
+  gather(key, value) |> 
+  group_by(key) |> 
+  count(na = is.na(value)) |> 
+  pivot_wider(names_from = na, values_from = n, values_fill = 0) |> 
+  mutate(pct_missing = (`TRUE`/sum(`TRUE`, `FALSE`))*100) |> 
+  ungroup()
+miss_data |> 
+  #sample_n(10) |> 
+  gt()
+```
+
+### Visualizing Missing data  
+
+* Owner data is missing for rows which lack Parcel ID (pid) numbers  
+* The tax roll is a record of those who are assessed *ad valorem* taxes.  
+* Cheyenne County does not name the many of the land owners which are tax exempt. 
+* Some property owners with tax exempt status are included in data set but many are not.  
+
+
+
+```{r}
+
+#| label: missingdata-viz_92
+#| fig-cap: "Missing data" 
+#| 
+miss_data |> 
+  mutate(Present = 100 - pct_missing) |>
+  gather(Key, value, 4:5) |>    
+  mutate(Key = recode(Key, pct_missing = "Missing")) |>
+  ggplot(aes(x = reorder(key, `TRUE`), y = value, fill = Key)) +       
+  geom_col(alpha = 0.85) +
+  scale_fill_manual(name = "",
+                            values = c('tomato3', 'steelblue'),
+                            labels = c("Missing", "Present")) +
+  coord_flip() +
+  labs(x = NULL, y = "Missing (%)")
+```
+Figure 1.  Data missing from raw data set 
+
+<br> 
+
+Records which have pid numbers also have geometry.  We can match those geometries with our GIS mapping, but we cannot identify the owner.  For purpose of identifying surface owners, we can exclude those record which are missing PID numbers.  
+
+<br>  
+
+Table 2. Excluding *Null* PID numbers from raw data set. 
+```{r}
+
+parcels <- parcels1 %>% 
+  filter(!is.na(pid)) 
+
+parcels %>% 
+   gather(key, value) |> 
+  group_by(key) |> 
+  count(na = is.na(value)) |> 
+  pivot_wider(names_from = na, values_from = n, values_fill = 0) |> 
+  mutate(pct_missing = (`TRUE`/sum(`TRUE`, `FALSE`))*100) |> 
+  ungroup() %>% 
+
+  gt()
+```
+
+
+<br> 
+
+Table 3.  Records which are missing "current owner name"
+```{r}
+parcels %>% 
+  filter(is.na(current_ow)) %>% 
+  gt()
+```
+
+<br>
+
+In the data set we are using, half of the records missing owner names are missing the name completely and the other half, the name is entered into street address.  Long names are split between first name and continued in the owner's address field.  Mixing of variable types are really bad business in the data world.  There is no other way to describe it.      
+
+### DATA CLEANING  
+
+All data sets come with errors.  Data are messy, some data are messier than other data.  To make the data usable, we start by selecting a variable to clean.
+
+Western Nebraska uses the Cadastral Information System for land management; i.e. Township, Range and Section.  The customary way of identifying parcels of land is to list the section first.  Section-Township-Range (STR).  While the practice seems ubiquitous, sorting by STR has never made sense to me.  If one is working in multiple Townships or Ranges, the STR sort does not group areas which are contiguous.  The first thing I do is sort Township-Range first, then by section.  This groups contiguous land together by Township-Range which makes more sense to me.  
+
+### Glimpse at the legal description  
+
+Table 4. Raw Legal Description  
+```{r}
+
+head(parcels$legal_desc, 10) %>% 
+ 
+ kbl(caption = "Raw legal description") %>% 
+ kable_classic(full_width = F, html_font = "Cambria", position = "left")  
+ 
+```
+
+
+Each line of the legal description ends with a tilde.  This is not very problematic. It is easy to clean.  The beginning of the line is a series of digits representing the Section-Township-Range combination.  The first step  is to extract the SRT from the description and resort the order of the digits to make it more compatible to working with the data set and to make it more amenable to creating publication ready legal descriptions.  
+
+
+#### Step one - Extract Section-Township-Range 
+```{r}
+x3 <- parcels %>% 
+  # at the beginning of the string - exclude the space and everything after the space.
+  mutate(SRT = str_extract(legal_desc, "^[^\\s]+"),
+  # extract everything following the space   
+         legal = str_extract(legal_desc, "\\s.+")) %>% 
+  
+  select(-legal_desc)
+
+
+x3 %>% 
+  select(SRT, legal) %>% 
+  head()
+```
+
+<br> 
+
+#### Step two - Transpose SRT to TRS (Township-Range-Section) 
+
+```{r}
+xtrs <- x3 %>% 
+  mutate(
+    TRS = paste(
+      str_extract(SRT, "\\d+-\\d+$"),
+      str_extract(SRT, "^\\d+"),
+      sep = "-"
+    )
+  )
+
+xtrs %>% 
+  head() %>% 
+  arrange(TRS) %>% 
+  select(TRS, legal)
+```
+
+#### Step three - Remove white space and the tilde at the end of *legal*  
+
+```{r}
+
+xtrs2 <-  xtrs %>% 
+  mutate(legal = str_squish(legal)) %>% 
+  mutate(legal = str_replace(legal, "\\~$", "")) %>% 
+  arrange(TRS) 
+
+
+
+
+xtrs2 %>% 
+   select(TRS, legal)
+```
+
+
+The property owner names are contained in a column current_ow that separates the owner last name and first name by the forward slash.  The first names are continued in the street address.  The address itself, in addition to containing continued owner names, is all concatenated.  Fortunately for us, the elements of the jumbled address are separated by commas.  After splitting the first name from last name in the current_ow column, we have to deal with straggling data following the first names.  The capacity and the ownership status are set apart with parentheses. Here I elect to set the capacity, i.e. whether the owner has a life estate, or is a trustee, etc. apart. Whether the owner is a joint tenant (JT) or a tenant in common (TIC) is not pertinent to the information we need to extracted, so these data will be removed from the data set.  
+
+### Glimpse at the owner names column  
+
+```{r}
+owners0 <- xtrs2 
+
+owners0 %>% 
+  head() %>% 
+  select(current_ow)
+
+```
+<br>
+
+Table 5.  After Name Split - First Names contain orphaned "("
+```{r}
+
+#pattern = "(.*) ,(\\d{5}-\\d{4})"
+pattern <- ("/") 
+
+# string::st_split(owners0$current_ow, "/")
+
+
+
+temp <- owners0 %>% separate(current_ow, "/",
+                into = c("lastname", "firstname"), 
+                remove = FALSE) %>% 
+  select(lastname, firstname, street_add)  
+
+ 
+
+  
+temp %>%   
+  mutate(parenth = str_detect(firstname, "\\(") ) %>% 
+  filter(parenth == "TRUE") %>% 
+  select(firstname, street_add) %>% 
+  head(10) %>% 
+   kbl(caption = "First Names and street_add") %>% 
+  kable_classic(full_width = F, html_font = "Cambria", position = "left")  
+
+
+names1 <- owners0 %>% separate(current_ow, "/",
+                into = c("lastname", "firstname"), 
+                remove = FALSE) 
+
+```
+ 
+ <br> 
+ 
+ After the firstname and lastname split from *current_ow*, we see messy first names which contain orphaned parentheses.  The next step is to decide which part of the first name to extract.  
+ 
+I definitely do not want (JT (JTWROS (TIC (JT OR SURV 
+
+```{r echo=TRUE}
+# df <- parcels %>% 
+#  mutate(col = str_replace(legal_desc, "\\~$", ""))
+
+names2 <- names1 %>% 
+  mutate(firstname = str_replace(firstname, "\\((JT*)", "")) %>% 
+  mutate(firstname = str_replace(firstname, "\\((TIC)", ""))
+```
+<br>  
+
+<br>
+
+Table 6.  Separate the capacity from first names  
+```{r echo=TRUE}
+
+capacity <- names2 %>% 
+  # mutate(col = str_replace(legal_desc, "\\s", "|")) %>%              #   str_replace()
+  separate(firstname, into = c("fnames", "capacity"), sep = "\\(")   
+
+capacity %>% 
+  select(fnames, capacity) %>% 
+  drop_na(capacity) %>% 
+  head() %>% 
+  kbl(caption = "Separate capacity from firstnames") %>% 
+  kable_classic(full_width = F, html_font = "Cambria", position = "left")  
+  
+
+```
+
+<br> 
+
+Now as we see Table 5, we take a look at the parts of "street_add" variable that need to be combined with the firstnames  
+
+To create the composite ownername, we combine firstnames, lastname, capacity and fnames in that order with the tidyr package.  
+
+```{r echo=TRUE}
+# separate the first names from the address column  
+# Then remove whitespace   
+
+
+capacity1 <- capacity %>% 
+#  separate(street_add, into = c("fnames2", "address0"), sep="\\,") %>% 
+   separate(street_add, into = c("fnames2", "address0", "citystate", "zip"), sep="\\,") %>% 
+  mutate(address0 = str_squish(address0)) %>% 
+  mutate(fnames2 = str_squish(fnames2)) %>% 
+  mutate(fnames2 = str_remove(fnames2, "^(\\d+).*"))
+
+
+```
+
+
+
+
+```{r}
+
+capacity2 <- capacity1 %>% 
+#  unite('Merged', c("fnames", "lastname", "capacity", "fnames2"), sep = " ", remove=FALSE) %>% 
+
+  unite('Merged', c("fnames", "lastname", "capacity"), sep= " ", remove=FALSE) %>% 
+    mutate(Merged = str_squish(Merged)) %>% 
+  mutate(Merged = str_replace(Merged, "^(NA)", "")) %>% 
+  mutate(Merged = str_replace(Merged, "NA$", "")) 
+
+
+capacity3 <- capacity2 %>% 
+
+   mutate(fnames2 = str_squish(fnames2)) %>% 
+   mutate(fnames2 = str_remove(fnames2, "NA$")) %>% 
+#  mutate(Merged = str_remove(Merged, "^NA")) %>% 
+  mutate(fnames2 = str_remove(fnames2, "JT+$")) %>% 
+   unite("owner", c("Merged", "fnames2"), sep= " ", remove=FALSE) %>% 
+    mutate(owner = str_squish(owner)) 
+   
+
+
+
+
+```
+
+### Separate citystate and select variables: 
+
+*  *"(?=.{4}$)"*, is a look-ahead assertion that finds the single inter-character space that is followed by four characters of any kind followed by the end of the string.
+
+```{r echo=TRUE}
+
+CheyenneParcels <- capacity3 %>% 
+  separate(citystate, into = c("city", "state"), sep = "(?=.{3}$)",
+         extra = "merge") %>% 
+  rename(firstname = fnames, address = address0) %>% 
+  select(pid, owner ,lastname, firstname, capacity, address, city, state, zip, TRS, legal, acres)
+```
+
+<br> 
+
+<br> 
+
+\newpage
+
+### Sample of cleaned Cheyenne County Parcel Data
+
+Table 7.  Cleaned data
+```{r}
+CheyenneParcels %>% 
+  head(10) %>% 
+  select(pid, owner, capacity, address, city, state, zip, TRS, legal, acres) %>% 
+#  mutate(capacity = str_replace(capacity, "(NA)+", "")) %>% 
+  gt() %>% 
+  sub_missing(columns=capacity, rows = everything(), missing_text = "---")
+
+# write_parquet(CheyenneParcels, here("data/cheyenneparcels.parquet"))
+```
+
+<br> 
+
+<br>  
+
+\newpage
+
+
+### Sample of raw data    
+
+<br> 
+<br>
+Table 8.  Original Data 
+
+```{r}
+parcels0 %>% 
+  select(parcel_id, current_ow, street_add, legal_desc) %>% 
+  head(10) %>% 
+  gt()
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+```{r}
+### Merged + fnames2 
+
+capacity3 <- capacity2 %>% 
+#  unite('Merged', c("fnames", "lastname", "capacity", "fnames2"), sep = " ", remove=FALSE) %>% 
+
+  unite("owner", c("Merged", "fnames2"), sep= " ", remove=FALSE) %>% 
+    mutate(owner = str_squish(owner)) 
+```
+
+
+```{r}
+
+capacity2 <- capacity1 %>% 
+  unite('Merged', c("fnames", "lastname", "capacity", "fnames2"), sep = " ", remove=FALSE)
+
+
+dfc <- capacity2 %>% 
+   mutate(Merged = str_squish(Merged)) %>% 
+   mutate(Merged = str_remove(Merged, "NA$")) %>% 
+  mutate(Merged = str_remove(Merged, "^NA")) %>% 
+  mutate(Merged = str_remove(Merged, "JT+$")) 
+ 
+  
+```
+
+```{r}
+dfctemp <- dfc %>% 
+  select(pid, Merged, lastname, fnames, capacity, address0, acres, TRS, legal )
+```
+
