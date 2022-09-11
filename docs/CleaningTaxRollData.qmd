@@ -196,6 +196,17 @@ x3 %>%
 
 #### Step two - Transpose SRT to TRS (Township-Range-Section) 
 
+:::{.callout-tip}
+
+You need to tell it which variable you're replacing. str_replace has arguments string, pattern, replacement.
+
+`x4 %>%`
+`  mutate(description = str_replace(description, "\\~$", "")`  
+
+*Jonthegreek*  
+
+::: 
+
 ```{r}
 xtrs <- x3 %>% 
   mutate(
@@ -211,6 +222,35 @@ xtrs %>%
   arrange(TRS) %>% 
   select(TRS, legal)
 ```
+
+
+<br> 
+
+<br> 
+
+
+:::{.callout-tip}
+
+Usingl *capture groups*  
+
+`myvar <- c("2-15-30", "20-15-30", "34-17-35", "7-12-22")`
+`str_replace(myvar, "(^[0-9]{1,2})-(.*)", paste0('\\2', "-", "\\1"))`
+
+1. Logic is to look for a string that starts with 1 or 2 digits followed by a hyphen, set the first 1/2digits as a capture group. 
+
+2. Exclude the first hyphen from any capture groups. 
+
+3. Create a new capture group that is everything after the hyphen.  
+
+4. Replace any strings that start with 1 digit or 2 digits with the 2nd capture group, followed by a hyphen, followed by the first capture group.
+
+`[1] "15-30-2"  "15-30-20" "17-35-34" "12-22-7" `  
+
+*Jack Penzer*
+
+:::
+
+
 
 #### Step three - Remove white space and the tilde at the end of *legal*  
 
