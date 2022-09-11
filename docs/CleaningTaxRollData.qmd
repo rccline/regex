@@ -173,7 +173,7 @@ head(parcels$legal_desc, 10) %>%
 ```
 
 
-Each line of the legal description ends with a tilde.  This is not very problematic. It is easy to clean.  The beginning of the line is a series of digits representing the Section-Township-Range combination.  The first step  is to extract the SRT from the description and resort the order of the digits to make it more compatible to working with the data set and to make it more amenable to creating publication ready legal descriptions.  
+Each line of the legal description ends with a tilde.  This is not very problematic. It is easy to clean.  The beginning of the line is a series of digits representing the Section-Township-Range combination.  The first step is to extract the SRT from the description and resort the order of the digits to make it more compatible to working with the data set and to make it more amenable to creating publication ready legal descriptions.  
 
 
 #### Step one - Extract Section-Township-Range 
@@ -229,7 +229,9 @@ xtrs2 %>%
 ```
 
 
-The property owner names are contained in a column current_ow that separates the owner last name and first name by the forward slash.  The first names are continued in the street address.  The address itself, in addition to containing continued owner names, is all concatenated.  Fortunately for us, the elements of the jumbled address are separated by commas.  After splitting the first name from last name in the current_ow column, we have to deal with straggling data following the first names.  The capacity and the ownership status are set apart with parentheses. Here I elect to set the capacity, i.e. whether the owner has a life estate, or is a trustee, etc. apart. Whether the owner is a joint tenant (JT) or a tenant in common (TIC) is not pertinent to the information we need to extracted, so these data will be removed from the data set.  
+The property owner names are contained in a column *current_ow* that separates the owner last name and first name by the forward slash.  Longer first names are separated from the first name column and continued in the street address field.  The address itself, in addition to containing continued owner names, is all concatenated.  Fortunately for us, the elements of the jumbled address are separated by commas.  After splitting the first name from last name in the current_ow column, we have to deal with straggling data following the first names.  
+
+The capacity of the owner and the owners ownership status (joint tenant, tenant in common etc.) are set apart with parentheses. Here I elect to set the capacity, i.e. whether the owner has a life estate, or is a trustee, etc. apart in its own data column. Whether the owner is a joint tenant (JT) or a tenant in common (TIC) is not pertinent to the information we need to extracted, so these data will be removed from the data set.  
 
 ### Glimpse at the owner names column  
 
@@ -243,7 +245,7 @@ owners0 %>%
 ```
 <br>
 
-Table 5.  After Name Split - First Names contain orphaned "("
+Table 5.  After Name Split - First Names contain orphaned "(" followed by other data
 ```{r}
 
 #pattern = "(.*) ,(\\d{5}-\\d{4})"
@@ -278,9 +280,9 @@ names1 <- owners0 %>% separate(current_ow, "/",
  
  <br> 
  
- After the firstname and lastname split from *current_ow*, we see messy first names which contain orphaned parentheses.  The next step is to decide which part of the first name to extract.  
+After the variables *firstname* and *lastname* split from the variable *current_ow*, we see messy first names which contain orphaned parentheses.  The next step is to decide which part of the first name to extract.  
  
-I definitely do not want (JT (JTWROS (TIC (JT OR SURV 
+I definitely do not want *(JT (JTWROS (TIC (JT OR SURV*.  It is not pertinent to our use of the data.   
 
 ```{r echo=TRUE}
 # df <- parcels %>% 
