@@ -18,6 +18,8 @@ library(tidyr)
 library(gt)
 library(kableExtra)
 
+library(arrow)
+
 # library(clipr)
 # library(datapasta)
 
@@ -157,6 +159,14 @@ mutate(legal = gsub("\\([^()]*\\)", "", parcels5$legal)) %>%
 
 parcels7 <- parcels6[c("pid", "county", "ownername", "capacity", "address", "city", "state", "zip", "subdivision", "TRS", "legal", "acres", "firstname", "lastname", "property_t", "land_value", "sale_date")]
 
-sum(str_count(parcels5$legal, " \\s*\\([^\\)]+\\)"))
 
-sum(str_count(parcels5$legal, " ^([(\\)]+\\)"))
+kimball_clean <- parcels7
+
+# write_csv(kimball_clean, "data/kimball_clean.csv")
+
+write_parquet(kimball_clean, "data/kimball_clean.parquet")
+
+rm(list = ls())
+
+kimball_cleaned <- read_parquet("data/kimball_clean.parquet")
+  
